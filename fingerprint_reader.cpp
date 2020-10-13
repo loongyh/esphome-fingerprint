@@ -5,9 +5,11 @@
 namespace esphome {
 namespace fingerprint_reader {
 
+// Based on Adafruit's library: https://github.com/adafruit/Adafruit-Fingerprint-Sensor-Library
+
 #define GET_CMD_PACKET(...)                                              \
 uint8_t data[] = {__VA_ARGS__};                                          \
-FingerprintPacket packet(FINGERPRINT_COMMANDPACKET, sizeof(data), data); \
+FingerprintPacket packet( ,FINGERPRINT_COMMANDPACKET, sizeof(data), data); \
 writeStructuredPacket(packet);                                           \
 if (getStructuredPacket(&packet) != FINGERPRINT_OK)                      \
   return FINGERPRINT_PACKETRECIEVEERR;                                   \
@@ -21,19 +23,19 @@ if (packet.type != FINGERPRINT_ACKPACKET)                                \
 static const char* TAG = "fingerprint";
 
 void FingerprintReaderComponent::update() {
-  if (this->waitingRemoval_) {
-    if (FINGERPRINT_NOFINGER == this->getImage()) {
-      this->waitingRemoval_ = false;
+  if (this->waiting_removal_) {
+    if (FINGERPRINT_NOFINGER == this->get_image()) {
+      this->waiting_removal_ = false;
     }
     return;
   }
 
-  if (enrollment_image_ > enrollment_buffers_) {
+  if (this->enrollment_image_ > this->enrollment_buffers_) {
     ESP_LOGI(TAG, "Creating model");
-    int result = this->createModel();
+    int result = this->create_model();
     if (FINGERPRINT_OK == result) {
       ESP_LOGI(TAG, "Storing model");
-      result = this->storeModel(enrollment_slot_);
+      result = this->store_model(this->enrollment_slot_);
       if (FINGERPRINT_OK == result) {
         ESP_LOGI(TAG, "Stored model");
       } else {
@@ -42,53 +44,52 @@ void FingerprintReaderComponent::update() {
     } else {
       ESP_LOGE(TAG, "Error creating model: %d", result);
     }
-    finish_enrollment(result);
+    this->finish_enrollment(result);
     return;
   }
 
-  if (HIGH == digitalRead(sensing_pin_)) {
-    ESP_LOGV(TAG, "No touch sensing");
-    return;
-  }
-
-  if (0 == enrollment_image_) {
-    scan_and_match();
+  if (0 == this->enrollment_image_) {
+    this->scan_and_match();
     return;
 
-  int result = scan_image(enrollment_image_);
+  int result = this->scan_image(this->enrollment_image_);
   if (FINGERPRINT_NOFINGER == result) {
     return;
   }
-  this->waitingRemoval_ = true;
+  this->waiting_removal_ = true;
   if (result != FINGERPRINT_OK) {
-    finish_enrollment(result);
+    this->finish_enrollment(result);
     return;
   }
-  this->enrollment_scan_callback_.call(enrollment_image_, finger_id)
-  ++enrollment_image_;
+  this->enrollment_scan_callback_.call(this->enrollment_image_, this->finger_id_)
+  ++this->enrollment_image_;
 }
 
 void FingerprintReaderComponent::setup() {
-  pinMode(sensing_pin_, INPUT);
-  if (!this->verifyPassword()) {
+  if (!this->verify_password()) {
     ESP_LOGE(TAG, "Could not find fingerprint sensor");
   }
   this->getParameters();
-  status_sensor_->publish_state(this->status_reg_);
-  capacity_sensor_->publish_state(this->capacity_);
-  security_level_sensor_->publish_state(this->security_level_);
-  enrolling_binary_sensor_->publish_state(false);
-  get_fingerprint_count();
+  this->status_sensor_->publish_state(this->status_reg_);
+  this->capacity_sensor_->publish_state(this->capacity_);
+  this->security_level_sensor_->publish_state(this->security_level_);
+  this->enrolling_binary_sensor_->publish_state(false);
+  this->get_fingerprint_count();
 }
 
-boolean FingerprintReaderComponent::verifyPassword() {
-  GET_CMD_PACKET(FINGERPRINT_VERIFYPASSWORD, (uint8_t)(password_ >> 24),
-                (uint8_t)(password_ >> 16), (uint8_t)(password_ >> 8),
-                (uint8_t)(password_ & 0xFF));
+boolean FingerprintReaderComponent::verify_password() {
+  GET_CMD_PACKET(FINGERPRINT_VERIFYPASSWORD, (uint8_t)(this->password_ >> 24),
+                (uint8_t)(this->password_ >> 16), (uint8_t)(this->password_ >> 8),
+                (uint8_t)(this->password_ & 0xFF));
   if (packet.data[0] == FINGERPRINT_OK)
     return true
   else
     return false
+}
+
+uint8_t FingerprintReaderComponent::setPassword(uint32_t password) {
+  SEND_CMD_PACKET(FINGERPRINT_SETPASSWORD, (password >> 24), (password >> 16),
+                  (password >> 8), password);
 }
 
 uint8_t FingerprintReaderComponent::getParameters() {
@@ -117,11 +118,105 @@ uint8_t FingerprintReaderComponent::getParameters() {
   return packet.data[0];
 }
 
+uint8_t FingerprintReaderComponent::get_image(void) {
+  SEND_CMD_PACKET(FINGERPRINT_GETIMAGE);
+}
+
+uint8_t FingerprintReaderComponent::image_2_tz(uint8_t slot) {
+  SEND_CMD_PACKET(FINGERPRINT_IMAGE2TZ, slot);
+}
+
+uint8_t FingerprintReaderComponent::create_model(void) {
+  SEND_CMD_PACKET(FINGERPRINT_REGMODEL);
+}
+
+uint8_t FingerprintReaderComponent::store_model(uint16_t location) {
+  SEND_CMD_PACKET(FINGERPRINT_STORE, 0x01, (uint8_t)(location >> 8),
+                  (uint8_t)(location & 0xFF));
+}
+
+uint8_t FingerprintReaderComponent::load_model(uint16_t location) {
+  SEND_CMD_PACKET(FINGERPRINT_LOAD, 0x01, (uint8_t)(location >> 8),
+                  (uint8_t)(location & 0xFF));
+}
+
+uint8_t FingerprintReaderComponent::get_model(void) {
+  SEND_CMD_PACKET(FINGERPRINT_UPLOAD, 0x01);
+}
+
+uint8_t FingerprintReaderComponent::delete_model(uint16_t location) {
+  SEND_CMD_PACKET(FINGERPRINT_DELETE, (uint8_t)(location >> 8),
+                  (uint8_t)(location & 0xFF), 0x00, 0x01);
+}
+
+uint8_t FingerprintReaderComponent::empty_database(void) {
+  SEND_CMD_PACKET(FINGERPRINT_EMPTY);
+}
+
+uint8_t FingerprintReaderComponent::finger_fast_search(void) {
+  // high speed search of slot #1 starting at page 0x0000 and page #0x00A3
+  GET_CMD_PACKET(FINGERPRINT_HISPEEDSEARCH, 0x01, 0x00, 0x00, 0x00, 0xA3);
+  this->finger_id_ = 0xFFFF;
+  this->confidence_ = 0xFFFF;
+
+  this->finger_id_ = packet.data[1];
+  this->finger_id_ <<= 8;
+  this->finger_id_ |= packet.data[2];
+
+  this->confidence_ = packet.data[3];
+  this->confidence_ <<= 8;
+  this->confidence_ |= packet.data[4];
+
+  return packet.data[0];
+}
+
+uint8_t FingerprintReaderComponent::finger_search(uint8_t slot) {
+  // search of slot starting thru the capacity
+  GET_CMD_PACKET(FINGERPRINT_SEARCH, slot, 0x00, 0x00, this->capacity_ >> 8,
+                 this->capacity_ & 0xFF);
+
+  this->finger_id_ = 0xFFFF;
+  this->confidence_ = 0xFFFF;
+
+  this->finger_id_ = packet.data[1];
+  this->finger_id_ <<= 8;
+  this->finger_id_ |= packet.data[2];
+
+  this->confidence_ = packet.data[3];
+  this->confidence_ <<= 8;
+  this->confidence_ |= packet.data[4];
+
+  return packet.data[0];
+}
+
+uint8_t FingerprintReaderComponent::led_control(bool on) {
+  if (on) {
+    SEND_CMD_PACKET(FINGERPRINT_LEDON);
+  } else {
+    SEND_CMD_PACKET(FINGERPRINT_LEDOFF);
+  }
+}
+
+uint8_t FingerprintReaderComponent::led_control(uint8_t control, uint8_t speed,
+                                         uint8_t coloridx, uint8_t count) {
+  SEND_CMD_PACKET(FINGERPRINT_AURALEDCONFIG, control, speed, coloridx, count);
+}
+
+uint8_t FingerprintReaderComponent::get_template_count(void) {
+  GET_CMD_PACKET(FINGERPRINT_TEMPLATECOUNT);
+
+  this->template_count_ = packet.data[1];
+  this->template_count_ <<= 8;
+  this->template_count_ |= packet.data[2];
+
+  return packet.data[0];
+}
+
 void FingerprintReaderComponent::finish_enrollment(int result) {
-  this->enrollment_callback_.call(FINGERPRINT_OK == result, result, enrollment_slot_)
-  enrollment_image_ = 0;
-  enrollment_slot_ = 0;
-  enrolling_binary_sensor_->publish_state(false);
+  this->enrollment_callback_.call(FINGERPRINT_OK == result, result, this->enrollment_slot_)
+  this->enrollment_image_ = 0;
+  this->enrollment_slot_ = 0;
+  this->enrolling_binary_sensor_->publish_state(false);
 }
 
 void FingerprintReaderComponent::scan_and_match() {
@@ -140,7 +235,7 @@ void FingerprintReaderComponent::scan_and_match() {
       last_confidence_sensor_->publish_state(confidence);
     }
   }
-  this->waitingRemoval_ = true;
+  this->waiting_removal_ = true;
   this->finger_scanned_callback_.call(FINGERPRINT_OK == result, result, finger_id, confidence)
 }
 
@@ -215,13 +310,13 @@ uint8_t FingerprintReaderComponent::getStructuredPacket(FingerprintPacket *packe
     byte = this->read();
     switch (idx) {
     case 0:
-      if (byte != (FINGERPRINT_STARTCODE >> 8))
+      if (byte != (START_CODE >> 8))
         continue;
       packet->start_code = (uint16_t)byte << 8;
       break;
     case 1:
       packet->start_code |= byte;
-      if (packet->start_code != FINGERPRINT_STARTCODE)
+      if (packet->start_code != START_CODE)
         return FINGERPRINT_BADPACKET;
       break;
     case 2:

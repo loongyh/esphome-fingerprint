@@ -7,89 +7,90 @@
 namespace esphome {
 namespace fingerprint_reader {
 
-// Based on Adafruit's library: https://github.com/adafruit/Adafruit-Fingerprint-Sensor-Library
+static const uint16_t START_CODE = 0xEF01;
+static const uint16_t DEFAULT_TIMEOUT = 1000;
 
-#define FINGERPRINT_OK 0x00
-#define FINGERPRINT_PACKETRECIEVEERR 0x01
-#define FINGERPRINT_NOFINGER 0x02
-#define FINGERPRINT_IMAGEFAIL 0x03
-#define FINGERPRINT_IMAGEMESS 0x06
-#define FINGERPRINT_FEATUREFAIL 0x07
-#define FINGERPRINT_NOMATCH 0x08
-#define FINGERPRINT_NOTFOUND 0x09
-#define FINGERPRINT_ENROLLMISMATCH 0x0A
-#define FINGERPRINT_BADLOCATION 0x0B
-#define FINGERPRINT_DBRANGEFAIL 0x0C
-#define FINGERPRINT_UPLOADFEATUREFAIL 0x0D
-#define FINGERPRINT_PACKETRESPONSEFAIL 0x0E
-#define FINGERPRINT_UPLOADFAIL 0x0F
-#define FINGERPRINT_DELETEFAIL 0x10
-#define FINGERPRINT_DBCLEARFAIL 0x11
-#define FINGERPRINT_PASSFAIL 0x13
-#define FINGERPRINT_INVALIDIMAGE 0x15
-#define FINGERPRINT_FLASHERR 0x18
-#define FINGERPRINT_INVALIDREG 0x1A
-#define FINGERPRINT_ADDRCODE 0x20
-#define FINGERPRINT_PASSVERIFY 0x21
-#define FINGERPRINT_STARTCODE 0xEF01
+enum class PacketType : uint8_t {
+  COMMAND = 0x01,
+  DATA = 0x02,
+  ACK = 0x07,
+  END_DATA = 0x08,
+};
 
-#define FINGERPRINT_COMMANDPACKET 0x1
-#define FINGERPRINT_DATAPACKET 0x2
-#define FINGERPRINT_ACKPACKET 0x7
-#define FINGERPRINT_ENDDATAPACKET 0x8
+enum class Command : uint8_t {
+  GET_IMAGE = 0x01,
+  IMAGE_2_TZ = 0x02,
+  SEARCH = 0x04,
+  REG_MODEL = 0x05,
+  STORE = 0x06,
+  LOAD = 0x07,
+  UPLOAD = 0x08,
+  DELETE = 0x0C,
+  EMPTY = 0x0D,
+  READ_SYS_PARAM = 0x0F,
+  SET_PASSWORD = 0x12,
+  VERIFY_PASSWORD = 0x13,
+  HI_SPEED_SEARCH = 0x1B,
+  TEMPLATE_COUNT = 0x1D,
+};
 
-#define FINGERPRINT_TIMEOUT 0xFF
-#define FINGERPRINT_BADPACKET 0xFE
+enum class Response : uint8_t {
+  OK = 0x00,
+  PACKET_RCV_ERR = 0x01,
+  NO_FINGER = 0x02,
+  IMAGE_FAIL = 0x03,
+  IMAGE_MESS = 0x06,
+  FEATURE_FAIL = 0x07,
+  NO_MATCH = 0x08,
+  NOT_FOUND = 0x09,
+  ENROLL_MISMATCH = 0x0A,
+  BAD_LOCATION = 0x0B,
+  DB_RANGE_FAIL = 0x0C,
+  UPLOAD_FEATURE_FAIL = 0x0D,
+  PACKET_RESPONSE_FAIL = 0x0E,
+  UPLOAD_FAIL = 0x0F,
+  DELETE_FAIL = 0x10,
+  DB_CLEAR_FAIL = 0x11,
+  PASSWORD_FAIL = 0x13,
+  INVALID_IMAGE = 0x15,
+  FLASH_ERR = 0x18,
+  INVALID_REG = 0x1A,
+  BAD_PACKET = 0xFE,
+  TIMEOUT = 0xFF,
+};
 
-#define FINGERPRINT_GETIMAGE 0x01
-#define FINGERPRINT_IMAGE2TZ 0x02
-#define FINGERPRINT_SEARCH 0x04
-#define FINGERPRINT_REGMODEL 0x05
-#define FINGERPRINT_STORE 0x06
-#define FINGERPRINT_LOAD 0x07
-#define FINGERPRINT_UPLOAD 0x08
-#define FINGERPRINT_DELETE 0x0C
-#define FINGERPRINT_EMPTY 0x0D
-#define FINGERPRINT_READSYSPARAM 0x0F
-#define FINGERPRINT_SETPASSWORD 0x12
-#define FINGERPRINT_VERIFYPASSWORD 0x13
-#define FINGERPRINT_HISPEEDSEARCH 0x1B
-#define FINGERPRINT_TEMPLATECOUNT 0x1D
-#define FINGERPRINT_AURALEDCONFIG 0x35
-#define FINGERPRINT_LEDON 0x50
-#define FINGERPRINT_LEDOFF 0x51
-
-#define FINGERPRINT_LED_BREATHING 0x01
-#define FINGERPRINT_LED_FLASHING 0x02
-#define FINGERPRINT_LED_ON 0x03
-#define FINGERPRINT_LED_OFF 0x04
-#define FINGERPRINT_LED_GRADUAL_ON 0x05
-#define FINGERPRINT_LED_GRADUAL_OFF 0x06
-#define FINGERPRINT_LED_RED 0x01
-#define FINGERPRINT_LED_BLUE 0x02
-#define FINGERPRINT_LED_PURPLE 0x03
-
-#define DEFAULTTIMEOUT 1000
+enum class LED : uint8_t {
+  AURA_CONFIG = 0x35,
+  TURN_ON = 0x50,
+  TURN_OFF = 0x51,
+  BREATHING = 0x01,
+  FLASHING = 0x02,
+  ALWAYS_ON = 0x03,
+  ALWAYS_OFF = 0x04,
+  GRADUAL_ON = 0x05,
+  GRADUAL_OFF = 0x06,
+  RED = 0x01,
+  BLUE = 0x02,
+  PURPLE = 0x03,
+};
 
 struct FingerprintPacket {
-  fingerprint_packet(uint8_t type, uint16_t length, uint8_t *data) {
-    this->start_code = FINGERPRINT_STARTCODE;
-    this->type = type;
-    this->length = length;
-    address[0] = 0xFF;
-    address[1] = 0xFF;
-    address[2] = 0xFF;
-    address[3] = 0xFF;
-    if (length < 64)
-      memcpy(this->data, data, length);
-    else
-      memcpy(this->data, data, 64);
-  }
   uint16_t start_code;
   uint8_t address[4];
   uint8_t type;
   uint16_t length;
   uint8_t data[64];
+
+  FingerprintPacket(uint8_t *address, uint8_t type, uint16_t length, uint8_t *data) {
+    this->start_code = START_CODE;
+    memcpy(this->address, address, 4);
+    this->type = type;
+    this->length = length;
+    if (length < 64)
+      memcpy(this->data, data, length);
+    else
+      memcpy(this->data, data, 64);
+  }
 };
 
 class FingerprintReaderComponent : public PollingComponent, public uart::UARTDevice {
@@ -97,17 +98,15 @@ class FingerprintReaderComponent : public PollingComponent, public uart::UARTDev
   void update() override;
   void setup() override;
   void dump_config() override;
-  boolean verifyPassword();
 
-  void set_fingerprint_count_sensor(sensor::Sensor *fingerprint_count_sensor) { fingerprint_count_sensor_ = fingerprint_count_sensor; }
-  void set_status_sensor(sensor::Sensor *status_sensor) { status_sensor_ = status_sensor; }
-  void set_capacity_sensor(sensor::Sensor *capacity_sensor) { capacity_sensor_ = capacity_sensor; }
-  void set_security_level_sensor(sensor::Sensor *security_level_sensor) { security_level_sensor_ = security_level_sensor; }
-  void set_last_finger_id_sensor(sensor::Sensor *last_finger_id_sensor) { last_finger_id_sensor_ = last_finger_id_sensor; }
-  void set_last_confidence_sensor(sensor::Sensor *last_confidence_sensor) { last_confidence_sensor_ = last_confidence_sensor; }
-  void set_enrolling_binary_sensor(binary_sensor::BinarySensor *enrolling_binary_sensor) { enrolling_binary_sensor_ = enrolling_binary_sensor; }
-  void set_sensing_pin(uint8_t pin) { sensing_pin_ = pin }
-  void set_password(uint32_t password) { password_ = password }
+  void set_fingerprint_count_sensor(sensor::Sensor *fingerprint_count_sensor) { this->fingerprint_count_sensor_ = fingerprint_count_sensor; }
+  void set_status_sensor(sensor::Sensor *status_sensor) { this->status_sensor_ = status_sensor; }
+  void set_capacity_sensor(sensor::Sensor *capacity_sensor) { this->capacity_sensor_ = capacity_sensor; }
+  void set_security_level_sensor(sensor::Sensor *security_level_sensor) { this->security_level_sensor_ = security_level_sensor; }
+  void set_last_finger_id_sensor(sensor::Sensor *last_finger_id_sensor) { this->last_finger_id_sensor_ = last_finger_id_sensor; }
+  void set_last_confidence_sensor(sensor::Sensor *last_confidence_sensor) { this->last_confidence_sensor_ = last_confidence_sensor; }
+  void set_enrolling_binary_sensor(binary_sensor::BinarySensor *enrolling_binary_sensor) { this->enrolling_binary_sensor_ = enrolling_binary_sensor; }
+  void set_password(uint32_t password) { this->password_ = password }
   void add_on_finger_scanned_callback(std::function<void(bool, int, int, int)> callback) {
     this->finger_scanned_callback_.add(std::move(callback));
   }
@@ -120,12 +119,25 @@ class FingerprintReaderComponent : public PollingComponent, public uart::UARTDev
 
   void enroll_fingerprint(uint16_t finger_id, int num_buffers) {
     ESP_LOGD(TAG, "Starting enrollment in slot %d", finger_id);
-    enrollment_slot_ = finger_id, enrollment_buffers_ = num_buffers, enrollment_image_ = 1;
-    enrolling_binary_sensor_->publish_state(true);
+    this->enrollment_slot_ = finger_id, this->enrollment_buffers_ = num_buffers, this->enrollment_image_ = 1;
+    this->enrolling_binary_sensor_->publish_state(true);
   }
 
   protected:
 
+  boolean verify_password();
+  uint8_t get_parameters(void);
+  uint8_t get_image(void);
+  uint8_t image_2_tz(uint8_t slot = 1);
+  uint8_t create_model(void);
+  uint8_t store_model(uint16_t id);
+  uint8_t load_model(uint16_t id);
+  uint8_t get_model(void);
+  uint8_t delete_model(uint16_t id);
+  uint8_t empty_database(void);
+  uint8_t finger_fast_search(void);
+  uint8_t finger_search(uint8_t slot = 1);
+  uint8_t get_template_count(void);
   void finish_enrollment(int result);
   void scan_and_match();
   int scan_image(int buffer);
@@ -133,7 +145,7 @@ class FingerprintReaderComponent : public PollingComponent, public uart::UARTDev
   uint8_t getStructuredPacket(FingerprintPacket *p, uint16_t timeout = DEFAULTTIMEOUT);
 
   void get_fingerprint_count() {
-    finger_->getTemplateCount();
+    get_template_count();
     fingerprint_count_sensor_->publish_state(finger.templateCount);
   }
 
@@ -148,12 +160,11 @@ class FingerprintReaderComponent : public PollingComponent, public uart::UARTDev
   uint16_t packet_len_ = 64;
   uint16_t baud_rate_ = 57600;
   uint32_t password_ = 0x0;
-  uint8_t sensing_pin_;
   uint8_t enrollment_image_ = 0;
   uint16_t enrollment_slot_ = 0;
   uint8_t enrollment_buffers_ = 5;
-  uint16_t templateCount_;
-  bool waitingRemoval_ = false;
+  uint16_t template_count_;
+  bool waiting_removal_ = false;
   Sensor *fingerprint_count_sensor_;
   Sensor *status_sensor_;
   Sensor *capacity_sensor_;
